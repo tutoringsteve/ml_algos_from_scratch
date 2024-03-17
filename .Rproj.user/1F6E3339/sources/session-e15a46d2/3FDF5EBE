@@ -1,0 +1,27 @@
+{
+    "id": "3FDF5EBE",
+    "path": "~/AlgosFromScratch/knn_from_scratch.R",
+    "project_path": "knn_from_scratch.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1709421414953.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "tempName": "Untitled1",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "44,0",
+        "scrollLine": "0"
+    },
+    "folds": "5|26|37|0|\n51|37|66|0|\n127|1|173|0|\n176|26|184|0|\n191|84|227|0|\n234|1|333|0|\n338|62|353|0|\n370|60|384|4|\n",
+    "lastKnownWriteTime": 1710713451,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1710713451204,
+    "read_only": false,
+    "read_only_alternatives": []
+}
