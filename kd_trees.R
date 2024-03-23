@@ -7,15 +7,15 @@ if (!requireNamespace("R6", quietly = TRUE)) install.packages("R6")
 KDNode <- R6Class(
   classname = "KDNode",
   public = list(
-    data = NULL,
+    rows = NULL,
     cut_variable = NULL,
     cut_value = NULL,
     left = NULL,
     right = NULL,
     
     # Constructor
-    initialize = function(data = NULL, cut_variable = NULL, cut_value = NULL, left = NULL, right = NULL) {
-      self$data <- data
+    initialize = function(rows = NULL, cut_variable = NULL, cut_value = NULL, left = NULL, right = NULL) {
+      self$rows <- rows
       self$cut_variable <- cut_variable
       self$cut_value <- cut_value
       self$left <- left
@@ -25,9 +25,8 @@ KDNode <- R6Class(
     # Special print function
     print = function() {
       cat("KDNode:\n")
-      cat("Data:\n")
-      cat("dimension: ", dim(self$data), "\n")
-      cat("names: ", names(self$data), "\n")
+      cat("rows: ", rows, "\n")
+      cat("num points: ", length(rows), "\n")
       cat(paste0(c("Cut Variable: ", self$cut_variable), collapse = ""), "\n")
       cat(paste0(c("Cut Value: ", self$cut_value), collapse = ""), "\n")
       if (!is.null(self$left)) {
@@ -46,9 +45,11 @@ KDNode <- R6Class(
     
     print_short = function(dir = NULL, layer = "root", depth = 0, tabs = 0) {
       if(!is.null(dir)) {
-        cat(rep("\t",depth),paste(dir,paste0(layer,":")), nrow(self$data), "\n")
+        cat(rep("\t",depth),paste(dir,paste0(layer,":")), self$rows, "\n")
+        cat(rep("\t",depth),paste(dir,paste0(layer,":")), self$cut_variable, " ", self$cut_value, "\n")
       } else {
-        cat(rep("\t",depth),paste0(layer,":"), nrow(self$data), "\n")
+        cat(rep("\t",depth),paste0(layer,":"), self$rows, "\n")
+        cat(rep("\t",depth),paste0(layer,":"), self$cut_variable, " ", self$cut_value, "\n")
       }
       if (!is.null(self$left)) {
         if(depth == 0) layer <- "child"
@@ -149,7 +150,7 @@ BuildKDTree <- function(data, target, last_cut_indices = c(), target_is_numeric 
   
   
   #build the tree depth first from left side through to right
-  node <- KDNode$new(data = data, cut_variable = names(medians)[[cut_var_index]], cut_value = medians[[cut_var_index]])
+  node <- KDNode$new(rows = nrow(data), cut_variable = names(medians)[[cut_var_index]], cut_value = medians[[cut_var_index]])
   
   left_row_nums <- target_in_each[[cut_var_index]]$L$row_num
   right_row_nums <- target_in_each[[cut_var_index]]$R$row_num
@@ -160,4 +161,32 @@ BuildKDTree <- function(data, target, last_cut_indices = c(), target_is_numeric 
   return(node)
 }
 
-  BuildKDTree(ames,"Sale_Price", max_depth = 10, min_data_in_leaf = 4)$print_short()
+
+max_depth <- 3
+root_node <- BuildKDTree(ames,"Sale_Price", max_depth = max_depth, min_data_in_leaf = 4)
+root_node$print_short()
+
+test <- ames[sample.int(nrow(ames),1),]
+
+direction <- c()
+cuts <- list()
+node <- root_node
+filtered_data <- ames
+while(!is.null(node)) {
+  if(test[[node$cut_variable]] < node$cut_value) {
+    filtered_data <- filtered_data %>% filter(get(node$cut_variable) < node$cut_value)
+    cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+    direction <- c(direction,"L")
+    node <- node$left
+  } else {
+    filtered_data <- filtered_data %>% filter(get(node$cut_variable) >= node$cut_value)
+    cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+    direction <- c(direction,"R")
+    node <- node$right
+  }
+}
+
+direction
+cuts
+filtered_data
+root_node$print_short()
