@@ -66,10 +66,20 @@ normalize_and_center <- function(M) {
   return(list(normalized = normalized, centers = column_means, deviations = column_sds))
 }
 
+revert_normalization <- function(normalized, centers, deviations) {
+  M <- normalized
+  for(i in 1:ncol(M)) {
+    M[,i] <- normalized[,i]*deviations[i] + centers[i]
+  }
+  
+  return(M)
+}
+
 
 
 # applies knn algorithm to a single test data point
-#
+# only returns the indices in train of the k nearest neighbors to test
+# 
 # k determines number of nearest neighbors to look for
 # normalize determines whether or not train and test are mean centered on 0/ and SD scaled to 1 when applying knn
 # p determines the type of Lp metric
@@ -124,6 +134,56 @@ knn_single_point <- function(train, test, k = 3, normalize = T, p = 2) {
     .$row_number
 }
 
+
+# applies knn algorithm to a single test data point
+# returns the indices in train of the k nearest neighbors to test and the 
+# non-normalized distances
+# 
+# k determines number of nearest neighbors to look for
+# normalize determines whether or not train and test are mean centered on 0/ and SD scaled to 1 when applying knn
+# p determines the type of Lp metric
+# returns original test data with nn and ypred columns appended.
+knn_single_point_nn_indices_and_distances <- function(train, test, k = 3, p = 2) {
+  if(!is.numeric(k)) {
+    stop(paste0("k has to be an integer value! Received k of type ", typeof(k), "."))
+  }
+  
+  if(ceiling(k) != floor(k)) {
+    stop("k, the number of neighbors, has to be an integer value!\nReceived k has a non-zero decimal component.")
+  }
+  
+  if(k < 1) {
+    stop("k, the number of neighbors, has to be greater than  or equal to 1!")
+  }
+  
+  if(k > nrow(train)) {
+    warning(paste0("Value of k set greater than number of training points.\n",
+                   "k is being truncated to number of rows, and all indices are being returned."))
+    return(1:nrow(train))
+  }
+  
+  if(is.matrix(train)) {
+    stop("matrix train not handled yet! come back soon :)")
+  }
+  
+  distances <- c()
+  for(i in 1:nrow(train)) {
+    distances <- c(distances, Lp(train[i,] %>% as.numeric(), test %>% as.numeric(), p))
+  }
+  
+  #returns indices of rows corresponding to the nearest neighbors.
+  tibble(
+    row_number = 1:nrow(train),
+    distances = distances
+  ) %>% 
+    arrange(distances) %>%
+    slice_head(n = k) %>%
+    select(row_number, distances)
+}
+
+
+
+
 ###########tests of knn_single_point###############
 {
   #double/real valued, but lies on integer grid points from -5 to 5 in x and y directions
@@ -134,11 +194,37 @@ knn_single_point <- function(train, test, k = 3, normalize = T, p = 2) {
   
   #randomly assigned real number betwixt the grid points
   single_test_point <- c(runif(2,-3, 3))
-  indices_from_single_random_point_tested_on_grid <- knn_single_point(train = single_point_train_grid,
-                                                                       test = c(runif(2,-3, 3)),
+  indices_from_single_random_point_tested_on_grid <- knn_single_point(
+                                                        train = single_point_train_grid,
+                                                        test = single_test_point,
+                                                        k = 3, 
+                                                        normalize = T, 
+                                                        p = 2)
+  
+  non_normalized_indices_from_single_random_point_tested_on_grid <- knn_single_point(
+                                                                       train = single_point_train_grid,
+                                                                       test = single_test_point,
                                                                        k = 3, 
-                                                                       normalize = T, 
+                                                                       normalize = F, 
                                                                        p = 2)
+  
+  indices_and_distances_from_single_random_point_tested_on_grid <- knn_single_point_nn_indices_and_distances(
+                                                                      train = single_point_train_grid,
+                                                                      test = single_test_point,
+                                                                      k = 3, 
+                                                                      p = 2)
+  
+  # check that the original knn method, with normalize off, gives neighbors whose euclidean distance is same as 
+  # the distances returned by the new knn_single_point_nn_indices_and_distances 
+  all.equal(
+    indices_and_distances_from_single_random_point_tested_on_grid$distances - 
+      single_point_train_grid[indices_from_single_random_point_tested_on_grid,] %>%
+      mutate(testx = single_test_point[1],
+             testy = single_test_point[2]) %>%
+      mutate(dist = sqrt((x - testx)^2 + (y - testy)^2)) %>%
+      .$dist, 
+    c(0,0,0))
+  
   
   
   #test character "k"

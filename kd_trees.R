@@ -1,3 +1,4 @@
+library(R6)
 library(tidyverse)
 library(tidymodels)
 tidymodels_prefer()
@@ -162,31 +163,88 @@ BuildKDTree <- function(data, target, last_cut_indices = c(), target_is_numeric 
 }
 
 
-max_depth <- 3
-root_node <- BuildKDTree(ames,"Sale_Price", max_depth = max_depth, min_data_in_leaf = 4)
-root_node$print_short()
-
-test <- ames[sample.int(nrow(ames),1),]
-
-direction <- c()
-cuts <- list()
-node <- root_node
-filtered_data <- ames
-while(!is.null(node)) {
-  if(test[[node$cut_variable]] < node$cut_value) {
-    filtered_data <- filtered_data %>% filter(get(node$cut_variable) < node$cut_value)
-    cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
-    direction <- c(direction,"L")
-    node <- node$left
-  } else {
-    filtered_data <- filtered_data %>% filter(get(node$cut_variable) >= node$cut_value)
-    cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
-    direction <- c(direction,"R")
-    node <- node$right
+############ helper functions ############
+# get the data from the leaf of the tree defined by node, 
+# get the cuts at each split leading to the leaf of the tree defined by node,
+# and get the split directions at each split leading to the leaf of the tree 
+# defined by node, with original data set data, where the point is located
+# return everything in list
+get_data_cuts_and_direction_to <- function(node, data, point) {
+  direction <- c()
+  cuts <- list()
+  
+  while(!is.null(node)) {
+    if(point[[node$cut_variable]] < node$cut_value) {
+      data <- data %>% filter(get(node$cut_variable) < node$cut_value)
+      cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+      direction <- c(direction,"L")
+      node <- node$left
+    } else {
+      data <- data %>% filter(get(node$cut_variable) >= node$cut_value)
+      cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+      direction <- c(direction,"R")
+      node <- node$right
+    }
   }
+  
+  return(list(data_in_leaf = data, directions_to_leaf = direction, cuts_to_leaf = cuts))
 }
 
-direction
-cuts
-filtered_data
-root_node$print_short()
+# get the data from the leaf of the tree defined by node, 
+# with original data set data, where the point is located
+get_leaf_data_at <- function(node, data, point) {
+  direction <- c()
+  cuts <- list()
+  
+  while(!is.null(node)) {
+    if(point[[node$cut_variable]] < node$cut_value) {
+      data <- data %>% filter(get(node$cut_variable) < node$cut_value)
+      cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+      direction <- c(direction,"L")
+      node <- node$left
+    } else {
+      data <- data %>% filter(get(node$cut_variable) >= node$cut_value)
+      cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+      direction <- c(direction,"R")
+      node <- node$right
+    }
+  }
+  
+  return(data)
+}
+
+# get the cuts at each split leading to the leaf of the tree defined by node, 
+# with original data set data, where the point is located
+get_cuts_to <- function(node, data, point) {
+  cuts <- list()
+  
+  while(!is.null(node)) {
+    if(point[[node$cut_variable]] < node$cut_value) {
+      cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+      node <- node$left
+    } else {
+      cuts <- c(cuts, list(cut_variable = node$cut_variable, cut_value = node$cut_value))
+      node <- node$right
+    }
+  }
+  
+  return(cuts)
+}
+
+# get the split directions at each split leading to the leaf of the tree defined by node, 
+# with original data set data, where the point is located
+get_direction_to <- function(node, data, point) {
+  direction <- c()
+  
+  while(!is.null(node)) {
+    if(point[[node$cut_variable]] < node$cut_value) {
+      direction <- c(direction,"L")
+      node <- node$left
+    } else {
+      direction <- c(direction,"R")
+      node <- node$right
+    }
+  }
+  
+  return(direction)
+}
