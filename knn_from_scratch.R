@@ -1,5 +1,6 @@
 library(stringr)
 library(tidymodels)
+library(scales)
 tidymodels_prefer()
 
 #Defines the Lp norm, variable p, where p = 2 is Euclidean distance.
@@ -187,29 +188,31 @@ knn_single_point_nn_indices_and_distances <- function(train, test, k = 3, p = 2)
 ###########tests of knn_single_point###############
 {
   #double/real valued, but lies on integer grid points from -5 to 5 in x and y directions
-  single_point_train_grid <- expand_grid(
+  train_grid <- expand_grid(
     x= (-5:5)*1.0,
     y= (-5:5)*1.0
   )
   
+  xy <- train_grid
+  
   #randomly assigned real number betwixt the grid points
   single_test_point <- c(runif(2,-3, 3))
   indices_from_single_random_point_tested_on_grid <- knn_single_point(
-                                                        train = single_point_train_grid,
+                                                        train = train_grid,
                                                         test = single_test_point,
                                                         k = 3, 
                                                         normalize = T, 
                                                         p = 2)
   
   non_normalized_indices_from_single_random_point_tested_on_grid <- knn_single_point(
-                                                                       train = single_point_train_grid,
+                                                                       train = train_grid,
                                                                        test = single_test_point,
                                                                        k = 3, 
                                                                        normalize = F, 
                                                                        p = 2)
   
   indices_and_distances_from_single_random_point_tested_on_grid <- knn_single_point_nn_indices_and_distances(
-                                                                      train = single_point_train_grid,
+                                                                      train = train_grid,
                                                                       test = single_test_point,
                                                                       k = 3, 
                                                                       p = 2)
@@ -218,7 +221,7 @@ knn_single_point_nn_indices_and_distances <- function(train, test, k = 3, p = 2)
   # the distances returned by the new knn_single_point_nn_indices_and_distances 
   all.equal(
     indices_and_distances_from_single_random_point_tested_on_grid$distances - 
-      single_point_train_grid[indices_from_single_random_point_tested_on_grid,] %>%
+      train_grid[indices_from_single_random_point_tested_on_grid,] %>%
       mutate(testx = single_test_point[1],
              testy = single_test_point[2]) %>%
       mutate(dist = sqrt((x - testx)^2 + (y - testy)^2)) %>%
@@ -228,21 +231,21 @@ knn_single_point_nn_indices_and_distances <- function(train, test, k = 3, p = 2)
   
   
   #test character "k"
-  knn_single_point(train = single_point_train_grid,
+  knn_single_point(train = train_grid,
                    test = c(runif(2,-3, 3)),
                    k = "character", 
                    normalize = T, 
                    p = 2)
   
   #test non-integer k
-  knn_single_point(train = single_point_train_grid,
+  knn_single_point(train = train_grid,
                    test = c(runif(2,-3, 3)),
                    k = 3.14, 
                    normalize = T, 
                    p = 2)
   
   #test k less than 1
-  knn_single_point(train = single_point_train_grid,
+  knn_single_point(train = train_grid,
                    test = c(runif(2,-3, 3)),
                    k = 0, 
                    normalize = T, 
@@ -250,12 +253,12 @@ knn_single_point_nn_indices_and_distances <- function(train, test, k = 3, p = 2)
   
   #test k greater than number of points in train
   #test non-integer k
-  all.equal(knn_single_point(train = single_point_train_grid,
+  all.equal(knn_single_point(train = train_grid,
                    test = c(runif(2,-3, 3)),
-                   k = nrow(single_point_train_grid) + 1, 
+                   k = nrow(train_grid) + 1, 
                    normalize = T, 
                    p = 2),
-            1:nrow(single_point_train_grid) #should return all indices if k is greater than number of rows
+            1:nrow(train_grid) #should return all indices if k is greater than number of rows
             )
 }
 
@@ -270,31 +273,59 @@ vote_best <- function(y) {
   return(sample(best[,1], 1)[[1,1]])
 }
 
-# applies knn algorithm to a test data set that can contain multiple points
-# knn is applied to each point in test, against all the points in train
-# normalize determines whether or not train and test are mean centered on 0/ and SD scaled to 1 when applying knn
-# p determines the type of Lp metric
-# returns original test data with nn and ypred columns appended.
-knn <- function(train, test, target, categorical = T, k = 3, normalize = T, p = 2) {
- 
-  if(sum(!(names(test) %in% names(train))) > 0) {
-    stop("The test set needs to have column names present in the training data!")
-  }
-  
-  #convert a single numeric vector into a tibble for the code to work
+# convert a single numeric vector into a tibble for the code to work
+# We know train is a tibble with the same column meanings as test
+# so get any row of train to form a tibble with the right columns
+# then for each column i, populate the slice with the ith index of the
+# vector test.
+# 
+# Does nothing if test is a list/data.frame/tibble/etc
+if_necessary_convert_test_from_vector_to_tibble <- function(train, features, test) {
   if(typeof(test) != "list") {
-    tibble_storage_for_test <- train %>% slice(1)
+    tibble_storage_for_test <- train %>%
+      # make sure test has right feature set.
+      select(all_of(features)) %>%
+      slice(1)
     for(i in 1:length(test)) {
       tibble_storage_for_test[1,i] <- test[i]
     }
     test <- tibble_storage_for_test
   }
   
+  return(test)
+}
+
+
+# applies knn algorithm to a test data set that can contain multiple points
+# knn is applied to each point in test, against all the points in train
+# normalize determines whether or not train and test are mean centered on 0/ and SD scaled to 1 when applying knn
+# p determines the type of Lp metric
+# returns original test data with nn and ypred columns appended.
+knn <- function(train, test, features = names(train), target, categorical = T, k = 3, normalize = T, p = 2) {
+ 
+  if(sum(!(names(test) %in% names(train))) > 0) {
+    stop("The test set needs to have column names present in the training data!")
+  }
+  
+  test <- if_necessary_convert_test_from_vector_to_tibble(train, features, test)
   
   nn <- list() #initialize empty for loop
+  distances <- list() #initialize empty for loop
   ypred <- c() #initialize empty for loop
   for(i in 1:nrow(test)) {
-    nn <- c(nn, list(knn_single_point(train = train[names(test)], test = test %>% slice(i), k = k, normalize = normalize, p = p)))
+    
+    test_point <- test %>% slice(i)
+    
+    nn_i <- knn_single_point(train = train[features], test = test_point, k = k, normalize = normalize, p = p)
+    nn <- c(nn, list(nn_i))
+    
+    distances_i <- c()
+    for(j in 1:length(nn_i)) {
+      distances_i <- c(distances_i, Lp(as.numeric(train[features][nn_i[j],]), as.numeric(test_point), p))
+    }
+    
+    distances <- c(distances, list(distances_i))
+    
     y <- train[nn[[i]],][target]
     if(categorical) {
       ypred <- c(ypred, vote_best(y))
@@ -307,20 +338,20 @@ knn <- function(train, test, target, categorical = T, k = 3, normalize = T, p = 
   test %>%
     bind_cols(
       tibble(
+        ypred = ypred,
         nn = nn,
-        ypred = ypred
+        distances = distances
       )
     )
 }
-
 
 ##########DEMO OF KNN ON 2D DATA GENERATED AS FOLLOWS:#############
 # Set classes for points in a grid such that the class is based on distance to one of 
 # two centers. The methods vary in randomness and how quickly the influence of the centers
 # decays with distance.
 {
-(center1 <- sample(xy$x, 2, replace = T)*1.0)
-(center2 <- sample(xy$x, 2, replace = T)*1.0)
+(center1 <- sample(train_grid$x, 2, replace = T)*1.0)
+(center2 <- sample(train_grid$x, 2, replace = T)*1.0)
 
 centers <- tibble(
   x = c(center1[1], center2[1]),
@@ -333,13 +364,17 @@ symbol2 <- "+"
 color1 <- "black"
 color2 <- "black"
 
-(xy2 <- xy %>%
+(train <- train_grid %>%
   rowwise() %>% 
   mutate(dist_from_center1 = Lp(c(x,y), center1),
          dist_from_center2 = Lp(c(x,y), center2)) %>%
-  mutate(definite_class_with_random_ties = case_when(dist_from_center1 < dist_from_center2 ~ symbol1,
-                                                      dist_from_center1 > dist_from_center2 ~ symbol2,
-                                                      TRUE ~ sample(c(symbol1, symbol2), 1))) %>%  #tie assigns randomly
+  ungroup() %>% # Removes rowwise status
+  mutate(
+    definite_class_with_random_ties = case_when(dist_from_center1 < dist_from_center2 ~ symbol1,
+                                                dist_from_center1 > dist_from_center2 ~ symbol2,
+                                                #tie assigns randomly
+                                                TRUE ~ sample(c(symbol1, symbol2), 1)) 
+    ) %>%
   rowwise() %>%
   mutate(
     random_class_based_on_guassian = sample(x = c(symbol1, symbol2), size = 1,
@@ -351,24 +386,18 @@ color2 <- "black"
                          dist_from_center2 == 0 ~ c(0,1), #guarantee class of center2 & handle div by 0 when on center2
                          TRUE ~ c(1/abs(dist_from_center1), 1/abs(dist_from_center2))/sum(1/abs(dist_from_center1), 1/abs(dist_from_center2)))
       )
-  )
+    ) %>%
+    #removes the rowwise status
+    ungroup()
 )
 
+features <- names(train_grid)
 
-size_label_text <- 8
-size_circle <- 6
-library(scales)
 test <- c(runif(2,-3, 3))
-if(typeof(test) != "list") {
-  tibble_storage_for_test <- train %>% slice(1)
-  for(i in 1:length(test)) {
-    tibble_storage_for_test[1,i] <- test[i]
-  }
-}
-test <- tibble_storage_for_test
+test <- if_necessary_convert_test_from_vector_to_tibble(train, features, test)
 
-test_knn_based_on_gaussian <- knn(train=train, test = test, target = "random_class_based_on_guassian", k = 5, p = 2)
-knn_on_test_predictions <- knn_on_test$ypred
+test_knn_based_on_gaussian <- knn(train=train, features = features, test = test, target = "random_class_based_on_guassian", k = 5, p = 2)
+knn_on_test_predictions <- test_knn_based_on_gaussian$ypred
 
 knn_on_test_colors <- case_when(knn_on_test_predictions == symbol1 ~ hue_pal()(2)[1],
                                 TRUE ~ hue_pal()(2)[2])
@@ -379,38 +408,51 @@ predictions_tibble <- tibble(
   colors = knn_on_test_colors
 )
 
-ggplot(xy2, aes(x = x, y = y)) + 
+size_label_text <- 8
+size_circle <- 6
+
+ggplot(train, aes(x = x, y = y)) + 
   geom_point(data = centers %>% slice_head(n = 1), aes(x, y), color = hue_pal()(2)[1], size = size_circle) + 
   geom_point(data = centers %>% slice_tail(n = 1), aes(x, y), color = hue_pal()(2)[2], size = size_circle) +
   geom_text(aes(label = random_class_based_on_guassian, color = random_class_based_on_guassian), size = size_label_text) +
   #geom_point(data = test, aes(x, y), size = size_circle, shape = 21, color = "purple") +
-  geom_point(data = xy[knn_single_point(train=xy, test = test, k = 5, p = 2),], aes(x = x, y = y), shape = 21, color = "blue", size = size_circle) +
-  geom_point(data = knn(train=train, test = test, target = "random_class_based_on_guassian", k = 5, p = 2), aes(x = x, y = y), color = "purple", size = size_circle) +
-  geom_text(data = knn(train=train, test = test, target = "random_class_based_on_guassian", k = 5, p = 2), aes(x = x, y = y, label = ypred, color = ypred), size = size_label_text*2, hjust = .5, vjust = 0.35) +
+  geom_point(data = xy[knn_single_point(train=xy, test = test, k = 5, p = 2),], 
+             aes(x = x, y = y), shape = 21, color = "blue", size = size_circle) +
+  geom_point(data = knn(train=train, features = features, test = test, target = "random_class_based_on_guassian", k = 5, p = 2), 
+             aes(x = x, y = y), color = "purple", size = size_circle) +
+  geom_text(data = knn(train=train, features = features, test = test, target = "random_class_based_on_guassian", k = 5, p = 2), 
+            aes(x = x, y = y, label = ypred, color = ypred), size = size_label_text*2, hjust = .5, vjust = 0.35) +
   labs(title = "Labels determined by distance from center (probabilistic, exponential decay)") +
   theme(legend.position="bottom", legend.text = element_text(size = 12 + size_label_text)) +
   theme(legend.position = "none") +
   guides(color=guide_legend(title="Class Color"))
 
-ggplot(xy2, aes(x = x, y = y)) + 
+
+ggplot(train, aes(x = x, y = y)) + 
   geom_point(data = centers %>% slice_head(n = 1), aes(x, y), color = hue_pal()(2)[1], size = size_circle) + 
   geom_point(data = centers %>% slice_tail(n = 1), aes(x, y), color = hue_pal()(2)[2], size = size_circle) +
   geom_text(aes(label = random_class_based_on_dist, color = random_class_based_on_dist), size = size_label_text) +
-  geom_point(data = xy[knn_single_point(train=xy, test = test, k = 5, p = 2),], aes(x = x, y = y), shape = 21, color = "blue", size = size_circle) +
-  geom_point(data = knn(train=train, test = test, target = "random_class_based_on_dist", k = 5, p = 2), aes(x = x, y = y), color = "purple", size = size_circle) +
-  geom_text(data = knn(train=train, test = test, target = "random_class_based_on_dist", k = 5, p = 2), aes(x = x, y = y, label = ypred, color = ypred), size = size_label_text*2, hjust = .5, vjust = 0.35) +
+  geom_point(data = xy[knn_single_point(train=xy, test = test, k = 5, p = 2),], 
+             aes(x = x, y = y), shape = 21, color = "blue", size = size_circle) +
+  geom_point(data = knn(train=train, features = features, test = test, target = "random_class_based_on_dist", k = 5, p = 2), 
+             aes(x = x, y = y), color = "purple", size = size_circle) +
+  geom_text(data = knn(train=train, features = features, test = test, target = "random_class_based_on_dist", k = 5, p = 2), 
+            aes(x = x, y = y, label = ypred, color = ypred), size = size_label_text*2, hjust = .5, vjust = 0.35) +
   labs(title = "Labels determined by distance from center (probabilistic, linear decay)") +
   theme(legend.position="bottom", legend.text = element_text(size = 12 + size_label_text)) +
   theme(legend.position = "none") +
   guides(color=guide_legend(title="Class Color"))
 
-ggplot(xy2, aes(x = x, y = y)) + 
+ggplot(train, aes(x = x, y = y)) + 
   geom_point(data = centers %>% slice_head(n = 1), aes(x, y), color = hue_pal()(2)[1], size = size_circle) + 
   geom_point(data = centers %>% slice_tail(n = 1), aes(x, y), color = hue_pal()(2)[2], size = size_circle) +
   geom_text(aes(label = definite_class_with_random_ties, color = definite_class_with_random_ties), size = size_label_text) +
-  geom_point(data = xy[knn_single_point(train=xy, test = test, k = 5, p = 2),], aes(x = x, y = y), shape = 21, color = "blue", size = size_circle) +
-    geom_point(data = knn(train=train, test = test, target = "definite_class_with_random_ties", k = 5, p = 2), aes(x = x, y = y), color = "purple", size = size_circle) +
-  geom_text(data = knn(train=train, test = test, target = "definite_class_with_random_ties", k = 5, p = 2), aes(x = x, y = y, label = ypred, color = ypred), size = size_label_text*2, hjust = .5, vjust = 0.35) +
+  geom_point(data = xy[knn_single_point(train=xy, test = test, k = 5, p = 2),], 
+             aes(x = x, y = y), shape = 21, color = "blue", size = size_circle) +
+    geom_point(data = knn(train=train, features = features, test = test, target = "definite_class_with_random_ties", k = 5, p = 2), 
+               aes(x = x, y = y), color = "purple", size = size_circle) +
+  geom_text(data = knn(train=train, features = features, test = test, target = "definite_class_with_random_ties", k = 5, p = 2), 
+            aes(x = x, y = y, label = ypred, color = ypred), size = size_label_text*2, hjust = .5, vjust = 0.35) +
   labs(title = "Labels determined by distance from center (determinstic except ties)") +
   theme(legend.position="bottom", legend.text = element_text(size = 12 + size_label_text)) +
   theme(legend.position = "none") +
@@ -441,17 +483,19 @@ get_grid <- function(num_points, min_x, max_x, min_y, max_y) {
 
 #runs the knn algorithm on the training data using a grid of points fine enough to plot a decision boundary without any gaps in the graph
 # returns a 
-get_knn_decision_boundary <- function(num_points = 50, min_x = -5.0, max_x = 5.0, min_y = min_x, max_y = max_x, train, target, categorical = T, k = 3, normalize = T, p = 2) {
+get_knn_decision_boundary <- function(num_points = 50, min_x = -5.0, max_x = 5.0, min_y = min_x, max_y = max_x, 
+                                      train, features = names(train), target, 
+                                      categorical = T, k = 3, normalize = T, p = 2) {
   test_grid <- get_grid(num_points, min_x, max_x, min_x, max_x)
   
   # appends nn and ypred columns for nearest neighbors and predicted y-values to the training data which in this case is the 
   # num_points by num_points grid covering the rectangular region defined by [min_x,max_x] X [min_y,max_y] 
-  knn(train=train, test = test_grid, target = target, categorical = categorical, k = k, normalize = normalize, p = p)
+  knn(train=train, features = features, test = test_grid, target = target, categorical = categorical, k = k, normalize = normalize, p = p)
 }
 
 # warning this takes a long time!
 decision_boundary <- get_knn_decision_boundary(num_points = 50, min_x = -5.0, max_x = 5.0 , min_y = -5.0, max_y = 5.0, 
-                                               train=train, target = "definite_class_with_random_ties", k = 5) 
+                                               train=train, features=features, target = "definite_class_with_random_ties", k = 5) 
 
 
 graph_knn_decision_boundary <- function(decision_boundary) {
