@@ -288,8 +288,8 @@ get_knn_decision_boundary <- function(num_points = 50, min_x = -5.0, max_x = 5.0
 
 
 graph_knn_decision_boundary <- function(decision_boundary) {
-  # decision_boundary <- get_knn_decision_boundary(num_points = num_points, min_x = min_x, max_x = max_x, min_y = min_y, max_y = max_y, 
-  #                           train = train, target = target, categorical = categorical, k = k, normalize = normalize, p = p)
+  decision_boundary <- get_knn_decision_boundary(num_points = num_points, min_x = min_x, max_x = max_x, min_y = min_y, max_y = max_y, 
+                            train = train, target = target, categorical = categorical, k = k, normalize = normalize, p = p)
   
   
   p <- ggplot(data = decision_boundary) +
