@@ -55,14 +55,11 @@ get_diagonal <- function(M) {
 x_train <- seq(-5, 5, length.out = 10)
 noise_sd <- 0.1
 y_train <- sin(x_train) + rnorm(length(x_train), sd = noise_sd)  # noisy observations
-x_test <- seq(-5, 5, length.out = 1000)
+x_test <- seq(-6, 6, length.out = 1200)
 
 results <- gaussian_process(x_train, y_train, x_test, sigma = 1, length_scale = 1, sigma_n = 0.1)
 
-# Plotting results
-lines(x_test, results$mean, col = 'red')
-plot(x_train, y_train, pch = 19, col = 'blue', ylim = c(-3, 3), main = "Gaussian Process Regression")
-plot(x_test, results$mean, pch = 19, col = 'red', ylim = c(-3, 3), main = "Gaussian Process Regression")
+
 
 sds <- sqrt(get_diagonal(results$covariance))
 
@@ -74,10 +71,16 @@ data_test <- tibble(x = as.vector(x_test),
                     ymax = as.vector(uppers))
 data_train <-  tibble(x = x_train, y = y_train, ymin = y_train - 1.96*noise_sd, ymax = y_train + 1.96 * noise_sd)
 
+
+# Plotting results
 ggplot() +
-  geom_point(data = data_test, aes(x,y), color = "red") +
+  geom_line(data = data_test, aes(x,y), color = "red", size = 1) +
   geom_point(data = data_train, aes(x,y), color = "black", size = 3) +
+  # plot the ribbon chart for the noise used to generate the train distribution
   #geom_ribbon(data = data_train, aes(x = x, ymin = ymin, ymax = ymax), fill = "green", alpha = 0.2)+
-  geom_ribbon(data = data_test, aes(x = x, ymin = ymin, ymax = ymax), fill = "blue", alpha = 0.4)
-  # Confidence band
+  # Confidence band for the trained GP
+  geom_ribbon(data = data_test, aes(x = x, ymin = ymin, ymax = ymax), fill = "blue", alpha = 0.4) +
+  scale_x_continuous(limits = c(-6,6), expand= c(0,0)) +
+  labs(title = "Gaussian Process Regression for y = sin(x) + N(0,0.1^2) for 10 train points\nThe blue indicates 95% confidence interval at each point.") +
+  theme_classic()
   
