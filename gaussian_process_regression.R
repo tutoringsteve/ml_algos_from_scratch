@@ -1,16 +1,67 @@
+library(ggplot2)
+library(dplyr)
+library(tibble)
+
+nn_erf_kernel <- function(x, y, sigma, sigma_offset, sigma_x) {
+  
+  
+  # see pages 91 eq. 4.29 from Gaussian Processes for Machine Learning MIT Press 2006 
+  # C. E. Rasmussen & C. K. I. Williams for the half-integer solutions
+  
+  #print(paste0("length x is ", length(x)))
+  #print(paste0("length y is ", length(y)))
+  #print(paste0("length sigma_x is ", length(sigma_x)))
+  
+  if(length(x) != length(y)) stop(paste0("nn_erf_kernel error: mismatched input vector dimensions."))
+  
+  if(length(sigma_x) != length(x)) {
+    if(length(sigma_x) == 1) {
+      warning("sigma_x has length 1 and is being repeated to have same dimensions as x and y which are not length 1.")
+      sigma_x <- rep(sigma_x, length(x))
+    } else {
+      stop("nn_erf_kernel error: The length of sigma_x is neither 1 nor equal to the length of x & y.")
+    }
+  }
+  
+  #if x or y comes in as a 1 dimensional data.frame or tibble() unlisting will correct things
+  #if x or y is a matrix or vector unlist will do nothing.
+  x <- matrix(c(1,x) %>% unlist(), ncol = 1) #pre-appending a 1 allows offset to work
+  y <- matrix(c(1,y) %>% unlist(), ncol = 1) 
+  
+  # sigma_offset determines variability of offset
+  # sigma_x determines variability in each x-direction
+  S <- diag(c(sigma_offset^2, sigma_x^2))
+  
+  
+  xSx <- t(x) %*% S %*% x
+  xSy <- t(x) %*% S %*% y
+  ySy <- t(y) %*% S %*% y
+  
+  #k_NN(x,y) =....
+  sigma^2 * (2/pi) * asin(2*xSy*((1 + 2*xSx)*(1 + 2*ySy))^(-1/2))
+}
+
+
 rbf_kernel <- function(x, y, sigma, length_scale) {
-  # x and y are vectors of inputs
-  sigma^2 * exp(- (x - y)^2 / (2 * length_scale^2))
+  
+  # x and y are vectors in the feature space
+  if(length(x) != length(y)) stop(paste0("rbf_kernel: mismatched input vector dimensions."))
+  
+  r <- sqrt(sum((x - y)^2))
+  
+  sigma^2 * exp(-r^2 / (2*length_scale^2))
 }
 
 matern <- function(x, y, nu, length_scale) {
-  if( ! nu %in% c(1/2, 3/2, 5/2)) stop("only nu = 1/2, 3/2, 5/2 developed so far.")
-  
-  
-  r <- abs(x - y)
-  
   # see pages 84-86 from Gaussian Processes for Machine Learning MIT Press 2006 
   # C. E. Rasmussen & C. K. I. Williams for the half-integer solutions
+  
+  if( ! nu %in% c(1/2, 3/2, 5/2)) stop("only nu = 1/2, 3/2, 5/2 developed so far.")
+  
+  # x and y are vectors in the feature space
+  if(length(x) != length(y)) stop(paste0("rbf_kernel: mismatched input vector dimensions."))
+  
+  r <- sqrt(sum((x - y)^2))
   
   if(nu == 1/2) {
     #exponential covariance function
@@ -28,6 +79,18 @@ exponential_covariance <- function(x,y, length_scale) {
   return(matern(x = x, y = y, nu = 1/2, length_scale = length_scale))
 }
 
+periodic_random <- function(x,y, sigma, length_scale) {
+  # see pages 92 eq. 4.31 from Gaussian Processes for Machine Learning MIT Press 2006 
+  # C. E. Rasmussen & C. K. I. Williams for the half-integer solutions
+  
+  # x and y are vectors in the feature space
+  if(length(x) != length(y)) stop(paste0("rbf_kernel: mismatched input vector dimensions."))
+  
+  # get a [periodic] non-stationary kernel by running x -> u(x) and running u through
+  # a stationary kernel (in this case, RBF with u(x) = (cos(x),sin(x)) for periodicity)
+  
+  sigma^2 * exp(-2 * sin(.5 * (x - y))^2 / length_scale^2)
+}
 
 compute_cov_matrix <- function(x1, x2= x1, kernel = "rbf", parameters) {
   n1 <- length(x1)
@@ -37,6 +100,8 @@ compute_cov_matrix <- function(x1, x2= x1, kernel = "rbf", parameters) {
     for (j in 1:n2) {
       if(kernel == "rbf") K[i, j] <- rbf_kernel(x1[i], x2[j], parameters$sigma, parameters$length_scale)
       if(kernel == "matern") K[i, j] <- matern(x1[i], x2[j], parameters$nu, parameters$length_scale)
+      if(kernel == "nn") K[i, j] <- nn_erf_kernel(x1[i], x2[j], parameters$sigma, parameters$sigma_offset, parameters$sigma_x)
+      if(kernel == "periodic") K[i, j] <- periodic_random(x1[i], x2[j], parameters$sigma, parameters$length_scale)
     }
   }
   return(K)
@@ -104,44 +169,3 @@ get_diagonal <- function(M) {
   
   return(diagonal)
 }
-
-# Example usage
-x_train <- seq(-5, 5, length.out = 10)
-noise_sd <- 0.1
-y_train <- sin(x_train) + rnorm(length(x_train), sd = noise_sd)  # noisy observations
-x_test <- seq(-6, 6, length.out = 1200)
-
-results <- gaussian_process(x_train, y_train, x_test, sigma_n = noise_sd, kernel = "rbf", parameters = list(sigma = 1, length_scale = 1))
-results2 <- gaussian_process_improved(x_train, y_train, x_test, sigma_n = noise_sd, kernel = "rbf", parameters = list(sigma = 1, length_scale = 1))
-results_matern_3halves <- gaussian_process_improved(x_train, y_train, x_test, sigma_n = noise_sd, kernel = "matern", parameters = list(nu = 3/2, length_scale = 1))
-results_matern_5halves <- gaussian_process_improved(x_train, y_train, x_test, sigma_n = noise_sd, kernel = "matern", parameters = list(nu = 5/2, length_scale = 1))
-
-results <- results_matern_5halves
-
-
-sds <- sqrt(get_diagonal(results$covariance))
-sds2 <- sqrt(get_diagonal(results2$covariance))
-
-all.equal(sds,sds2)
-
-uppers <- results$mean + 1.96 * sds
-lowers <- results$mean - 1.96 * sds
-data_test <- tibble(x = as.vector(x_test), 
-                    y = as.vector(results$mean), 
-                    ymin = as.vector(lowers), 
-                    ymax = as.vector(uppers))
-data_train <-  tibble(x = x_train, y = y_train, ymin = y_train - 1.96*noise_sd, ymax = y_train + 1.96 * noise_sd)
-
-
-# Plotting results
-ggplot() +
-  geom_line(data = data_test, aes(x,y), color = "red", size = 1) +
-  geom_point(data = data_train, aes(x,y), color = "black", size = 3) +
-  # plot the ribbon chart for the noise used to generate the train distribution
-  #geom_ribbon(data = data_train, aes(x = x, ymin = ymin, ymax = ymax), fill = "green", alpha = 0.2)+
-  # Confidence band for the trained GP
-  geom_ribbon(data = data_test, aes(x = x, ymin = ymin, ymax = ymax), fill = "blue", alpha = 0.4) +
-  scale_x_continuous(limits = c(-6,6), expand= c(0,0)) +
-  labs(title = "Gaussian Process Regression for y = sin(x) + N(0,0.1^2) for 10 train points\nThe blue indicates 95% confidence interval at each point.") +
-  theme_classic()
-  
