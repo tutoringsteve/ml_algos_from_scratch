@@ -47,9 +47,11 @@ rbf_kernel <- function(x, y, sigma, length_scale) {
   # x and y are vectors in the feature space
   if(length(x) != length(y)) stop(paste0("rbf_kernel: mismatched input vector dimensions."))
   
-  r <- sqrt(sum((x - y)^2))
+  r2 <- t(x - y) %*% (x-y)
   
-  sigma^2 * exp(-r^2 / (2*length_scale^2))
+  
+  
+  sigma^2 * exp(-r2 / (2*length_scale^2))
 }
 
 matern <- function(x, y, nu, length_scale) {
@@ -61,7 +63,7 @@ matern <- function(x, y, nu, length_scale) {
   # x and y are vectors in the feature space
   if(length(x) != length(y)) stop(paste0("rbf_kernel: mismatched input vector dimensions."))
   
-  r <- sqrt(sum((x - y)^2))
+  r <- sqrt(t(x - y) %*% (x - y))
   
   if(nu == 1/2) {
     #exponential covariance function
@@ -117,7 +119,11 @@ gaussian_process <- function(x_train, y_train, x_test, sigma_n = 0, kernel = "rb
   K__s <- compute_cov_matrix(x_train, x_test, kernel = kernel, parameters = parameters)
   K_s_ <- compute_cov_matrix(x_test, x_train, kernel = kernel, parameters = parameters)
   K_ss <- compute_cov_matrix(x_test, kernel = kernel, parameters = parameters)
-  K_inv <- solve(K + sigma_n^2 * diag(1, nrow = nrow(K)))
+  
+  #It's extremely likely that R's solve recognizes this as positive semi-definite
+  #and uses cholesky decomposition anyway
+  K_y <- K + sigma_n^2 * diag(1, nrow = nrow(K))
+  K_inv <- solve(K_y) 
   
   # P(y|D,x) ~ N(k_star^T * K^(-1) * y, K_starstar * K^(-1) * K_star)
   # so mu = k_star^T * K^(-1) * y
@@ -127,7 +133,10 @@ gaussian_process <- function(x_train, y_train, x_test, sigma_n = 0, kernel = "rb
   
   cov <- K_ss - K_s_ %*% K_inv %*% K__s
   
-  list(mean = mu, covariance = cov)
+  
+  log_p_y_given_x <- -.5*t(y_train) %*% K_inv %*% y_train - 0.5*log(det(K_y)) - 0.5*length(x_train)*log(2*pi)
+  
+  list(mean = mu, covariance = cov, log_marginal_likelihood = log_p_y_given_x)
 }
 
 gaussian_process_improved <- function(x_train, y_train, x_test, sigma_n = 0, kernel = "rbf", parameters) {
@@ -145,27 +154,18 @@ gaussian_process_improved <- function(x_train, y_train, x_test, sigma_n = 0, ker
   K_ss <- compute_cov_matrix(x_test, kernel = kernel, parameters = parameters)
   
   # R gives the upper triangular matrix, algo expects the lower triangular matrix
+  #also possibly could just use chol2inv( ) function on K + sigma_n^2 * diag(1, nrow = nrow(K))
   L <- t(chol(K + sigma_n^2 * diag(1, nrow = nrow(K))))
   Linv = solve(L)
+  #alpha is K^(-1) %*% y_train
   alpha <- t(Linv)%*%(Linv%*%y_train)
   fstarmean <- t(K__s) %*% alpha
   v <-  Linv %*% K__s
   var_fstar <- K_ss - t(v)%*%v
-  log_p_y_given_x <- -.5*t(y_train) %*%  alpha - sum(log(get_diagonal(L))) - 0.5*length(x_train)*log(2*pi)
+  
+  # K = LL^T , det(K) = det(L)^2 = product(diag(L))^2
+  # -(1/2)*log(det(K)) = -log(sqrt(det(K))) = -log(product(diag(L))) = - sum(log(diag(L)))
+  log_p_y_given_x <- -.5*t(y_train) %*%  alpha - sum(log(diag(L))) - 0.5*length(x_train)*log(2*pi)
   
   list(mean = fstarmean, covariance = var_fstar, log_marginal_likelihood = log_p_y_given_x)
-}
-
-
-get_diagonal <- function(M) {
-  if(dim(M)[1] != dim(M)[2]) stop("Not a square matrix")
-  
-  n <- nrow(M)
-  diagonal <- numeric(n)
-  
-  for(i in 1:n) {
-    diagonal[i] <- M[i,i]
-  }
-  
-  return(diagonal)
 }
